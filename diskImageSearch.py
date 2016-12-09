@@ -72,12 +72,22 @@ def acquisition_exists(name):
     else:
         return False
 
+
 def already_exists(hash):
     client = MongoClient()
     db = client['dedupe']
     files = db.files
     if bool(files.find_one({"SHA1 Hash": hash})):
         files.update_one({"SHA1 Hash": hash}, {'$addToSet': {"Acquisition": outname}})
+        return True
+    else:
+        return False
+
+def blacklisted(hash):
+    client = MongoClient()
+    db = client['blacklist']
+    files = db.files
+    if bool(files.find_one({"SHA1 Hash": hash})):
         return True
     else:
         return False
@@ -141,9 +151,12 @@ def directoryRecurse(directoryObject, parentPath, insert_list):
                           # "Start Block": start_block,
                           # "Finish Block": finish_block,
                           # "Block Length": block_length
-                            }
-
-                if already_exists(sha1hash.hexdigest()) is False:
+                          }
+                if args.blacklist and blacklisted(sha1hash.hexdigest()):
+                    print "Blacklisted File Found"
+                    print insert
+                    raw_input("Press enter to continue")
+                elif already_exists(sha1hash.hexdigest()) is False:
                     mongo_insert(insert)
                     if not os.path.exists("Extracted_files/" + outputPath):
                         os.makedirs("Extracted_files/" + outputPath)
@@ -169,15 +182,6 @@ argparser.add_argument(
     help='E01 to extract from'
 )
 argparser.add_argument(
-    '-p', '--path',
-    dest='path',
-    action="store",
-    type=str,
-    default='/',
-    required=False,
-    help='Path to recurse from, defaults to /'
-)
-argparser.add_argument(
     '-t', '--type',
     dest='imagetype',
     action="store",
@@ -195,8 +199,17 @@ argparser.add_argument(
     required=True,
     help='Specify acquisition name'
 )
+argparser.add_argument(
+    '--enable-automation',
+    dest='blacklist',
+    action="store",
+    type=bool,
+    default=False,
+    required=False,
+    help='Enable auto file discovery'
+)
 args = argparser.parse_args()
-dirPath = args.path
+dirPath = '/'
 insert_list = []
 
 if not os.path.exists("Extracted_files/"):

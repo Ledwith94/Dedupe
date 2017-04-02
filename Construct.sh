@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-hdiutil create -size $2k $1.dmg -fs HFS+J
+dd if=$1 of=$2 conv=notrunc skip=$3 count=$4 bs=$5

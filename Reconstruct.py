@@ -1,11 +1,12 @@
-import os
+import argparse
+
+import datetime
 from pymongo import MongoClient
 import subprocess
-import argparse
 import unicodedata
 
 
-class ImageInfo:
+class Main:
     def __init__(self):
         self.memory = 0.0
         self.insert_list = []
@@ -15,67 +16,72 @@ class ImageInfo:
         self.all_files = {}
         self.file_tuple = []
         self.total_files = 0
+        self.startTime = datetime.datetime.now()
 
-argparser = argparse.ArgumentParser("Specify the aquisition to reconstruct")
+
+    def construct(self, acquisition):
+        name = None
+        memory = 0.0
+        all_files = {}
+        file_tuple = []
+        final_block = 0
+        client = MongoClient()
+        db = client['Acquisition']
+        files = db.files
+        obj = files.find_one({"Name": acquisition})
+        inode = None
+        path = None
+        run = None
+        for key, val in obj.items():
+            if "Name" in key:
+                name = str(val)
+                print name
+            if "Image Size" in key:
+                memory = int(val)
+            if "All Files" in key:
+                all_files = val
+
+        for i in all_files:
+            for key, val in i.items():
+                if "Start Block" in key:
+                    inode = str(val)
+                if "Block Length" in key:
+                    x = int(val) + 1
+                    run = str(x)
+                if "File Path" in key:
+                    path = unicodedata.normalize('NFKD', val).encode('ascii', 'ignore')
+                if "Finish Block" in key:
+                    if val > final_block:
+                        final_block = val
+                if path and inode and run is not None:
+                    tup = (path + ", " + inode + ", " + run)
+                    file_tuple.append(tup)
+                    path = None
+                    inode = None
+                    run = None
+        memory /= 512
+        target = name + ".dmg"
+        subprocess.Popen(args=['./File_Insert.sh', '%s' % str("/dev/zero"), '%s' % str(target), '%s' % str(memory - 1)])
+        for x in file_tuple:
+            str(all).split(", ")
+            subprocess.Popen(args=['./File_Insert.sh', '%s' % str(x.split(", ")[0]), '%s' % str(target),
+                                   '%s' % (str(x.split(", ")[1])), '%s' % (str(x.split(", ")[2]))])
+        print datetime.datetime.now() - self.startTime
+
+
+argparser = argparse.ArgumentParser(
+    description='Hash files recursively from a forensic image and optionally extract them')
 argparser.add_argument(
     '-a', '--acquisition',
-    dest='acquisition',
+    dest='imagefile',
     action="store",
     type=str,
-    default=False,
+    default=None,
     required=True,
-    help='Specify acquisition name'
+    help='E01 to extract from'
 )
-
 args = argparser.parse_args()
-info = ImageInfo()
-client = MongoClient()
-db = client['Acquisition']
-files = db.files
-obj = files.find_one({"Name": args.acquisition})
 
-inode = None
-path = None
-sizes = None
+main = Main()
 
-
-for key, val in obj.items():
-    if "Image Size" in key:
-        info.memory = int(val)
-    if "Slack Space" in key:
-        info.slack_space = val
-    if "All Files" in key:
-        info.all_files = val
-    if "Total files" in key:
-        info.total_files = val
-
-for i in info.all_files:
-    for key, val in i.items():
-        if "Start Block" in key:
-            inode = str(val)
-        if "File Path" in key:
-            path = unicodedata.normalize('NFKD', val).encode('ascii', 'ignore')
-        if "Size" in key:
-            sizes = str(val)
-        if path and inode and sizes is not None:
-            tup = (inode + ", " + path + ", " + sizes)
-            info.file_tuple.append(tup)
-            path = None
-            inode = None
-            sizes = None
-
-info.memory /= 512
-
-subprocess.Popen(args=['./Construct.sh', "{0}".format(str(args.acquisition)), "{0}".format(str(info.memory))])
-
-target = str(args.acquisition)+".dmg"
-
-while not os.path.exists(target):
-    print "Waiting For disk"
-
-for all in info.file_tuple:
-    str(all).split(", ")
-    # source=$1 target=$2 byte size=$3 Start Block=$4
-    subprocess.Popen(args=['./File_Insert.sh', '%s' % str(all.split(", ")[1]), '%s' % str(target),
-                           '%s' % (str(str(all).split(", ")[0])), '%s' % (str(info.total_files))])
-subprocess.Popen(args=['./File_Insert.sh', '%s' % str("/dev/zero"), '%s' % str(target), '%s' % str(info.memory)])
+main.construct(args.imagefile)
